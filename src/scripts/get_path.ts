@@ -1,16 +1,24 @@
-import {AutocompleteData, NS} from '@ns';
-import * as common from '/lib/common';
+import type { AutocompleteData, NS } from "@ns";
+import * as common from "/lib/common";
 
 export async function main(ns: NS) {
-  if (ns.args.length != 1) {
-    ns.tprintf('ERROR missing arg target');
+  if (ns.args.length !== 1) {
+    ns.tprintf("ERROR missing arg target");
     return;
   }
 
-  const target = ns.args[0] as string;
+  let hostname = ns.args[0] as string;
 
-  const graph = common.deepScan(ns, 20);
-  common.printPath(ns, target, graph);
+  const graph = common.deepScan(ns);
+
+  const path = [];
+  while (hostname !== "") {
+    path.push(hostname);
+    hostname = graph.get(hostname)!;
+  }
+  path.reverse();
+
+  ns.tprintf(path.join(" -> "));
 }
 
 export function autocomplete(data: AutocompleteData, _args: string[]) {

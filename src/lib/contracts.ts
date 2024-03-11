@@ -1,10 +1,14 @@
-import {NS} from '@ns';
+import type { NS } from "@ns";
 
-import {SubarrayWithMaximumSum} from '/contracts/subarray_max_sum';
-import {ShortestPastInAGrid} from '/contracts/shortest_path_in_grid';
+import { CompressionIRLECompression } from "/contracts/compression_i_rle_compression";
+import { GenerateIPAddresses } from "/contracts/generate_ip_addresses";
+import { MinimumPathSumInATriangle } from "/contracts/minimum_path_sum_in_a_triangle";
+import { ShortestPastInAGrid } from "/contracts/shortest_path_in_grid";
+import { SubarrayWithMaximumSum } from "/contracts/subarray_max_sum";
+import { UniquePathsInAGridI } from "/contracts/unique_paths_in_a_grid_i";
 
 interface Solver {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: forced by API
   solve(data: any): any;
 }
 
@@ -17,35 +21,51 @@ export class ContractSolver {
 
     this.solvers = new Map(
       Object.entries({
-        'Subarray with Maximum Sum': new SubarrayWithMaximumSum(this.ns),
-        'Shortest Path in a Grid': new ShortestPastInAGrid(this.ns),
-      })
+        "Subarray with Maximum Sum": new SubarrayWithMaximumSum(this.ns),
+        "Shortest Path in a Grid": new ShortestPastInAGrid(this.ns),
+        "Unique Paths in a Grid I": new UniquePathsInAGridI(this.ns),
+        "Minimum Path Sum in a Triangle": new MinimumPathSumInATriangle(
+          this.ns,
+        ),
+        "Compression I: RLE Compression": new CompressionIRLECompression(
+          this.ns,
+        ),
+        "Generate IP Addresses": new GenerateIPAddresses(this.ns),
+      }),
     );
   }
-  solvables = ['Subarray with Maximum Sum', 'Shortest Path in a Grid'];
+  solvables = [
+    "Subarray with Maximum Sum",
+    "Shortest Path in a Grid",
+    "Unique Paths in a Grid I",
+    "Minimum Path Sum in a Triangle",
+    "Compression I: RLE Compression",
+    "Generate IP Addresses",
+  ];
 
   solve(contract: string, hostname: string) {
     const type = this.ns.codingcontract.getContractType(contract, hostname);
     const data = this.ns.codingcontract.getData(contract, hostname);
 
     if (!this.solvers.has(type)) {
-      return '';
+      return "";
     }
 
-    const res = this.solvers.get(type)!.solve(data);
+    const res = this.solvers.get(type)?.solve(data);
 
     return this.ns.codingcontract.attempt(res, contract, hostname);
   }
 
   test() {
-    for (const type in this.solvers) {
+    this.ns.tprintf("Running tests...");
+    for (const type of this.solvers.keys()) {
       const contract = this.ns.codingcontract.createDummyContract(type);
 
       this.ns.atExit(() => this.ns.rm(contract));
 
-      const reward = this.solve(contract, 'home');
+      const reward = this.solve(contract, "home");
 
-      if (reward === '') {
+      if (reward === "") {
         this.ns.tprintf(`ERROR ${type}`);
       } else {
         this.ns.tprintf(`OK ${type}`);
