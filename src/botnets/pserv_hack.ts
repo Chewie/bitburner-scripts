@@ -21,20 +21,18 @@ export async function main(ns: NS) {
       .getPurchasedServers()
       .map((hostname) => ns.getServer(hostname));
 
-    const workers = [home].concat(pservs);
-
     const targets = bots
       .filter(
         (server) => server.requiredHackingSkill! <= ns.getHackingLevel() / 2,
       )
       .toSorted((a: Server, b: Server) => b.moneyMax! - a.moneyMax!);
 
-    for (let i = 0; i < workers.length; i++) {
+    for (let i = 0; i < pservs.length; i++) {
       if (targets[i]) {
-        common.execHackScript(ns, workers[i], targets[i].hostname);
+        common.execHackScript(ns, pservs[i], targets[i].hostname);
       } else {
-        common.execHackScript(ns, workers[i], targets[0].hostname);
-        //common.execShare(ns, workers[i]);
+        common.execHackScript(ns, pservs[i], targets[0].hostname);
+        //common.execShare(ns, pservs[i]);
       }
     }
 

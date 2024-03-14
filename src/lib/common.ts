@@ -45,7 +45,7 @@ export function getPortOpeners() {
 }
 
 export function getHackScript() {
-  return "/scripts/basic_hack_loop.js";
+  return "/routines/basic_hack_loop.js";
 }
 
 export function getShareScript() {
@@ -75,7 +75,7 @@ export function execHackScript(ns: NS, server: Server, target: string) {
   const script = getHackScript();
   const ramCost = ns.getScriptRam(script);
   const ramToUse =
-    server.hostname === "home" ? server.maxRam - 1000 : server.maxRam;
+    server.hostname === "home" ? server.maxRam - 10 : server.maxRam;
   const numThreads = Math.floor(ramToUse / ramCost);
 
   if (numThreads === 0) {

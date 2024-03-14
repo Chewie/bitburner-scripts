@@ -6,6 +6,7 @@ import { MinimumPathSumInATriangle } from "/contracts/minimum_path_sum_in_a_tria
 import { ShortestPastInAGrid } from "/contracts/shortest_path_in_grid";
 import { SubarrayWithMaximumSum } from "/contracts/subarray_max_sum";
 import { UniquePathsInAGridI } from "/contracts/unique_paths_in_a_grid_i";
+import { MergeOverlappingIntervals } from "/contracts/merge_overlapping_intervals";
 
 interface Solver {
   // biome-ignore lint/suspicious/noExplicitAny: forced by API
@@ -31,6 +32,7 @@ export class ContractSolver {
           this.ns,
         ),
         "Generate IP Addresses": new GenerateIPAddresses(this.ns),
+        "Merge Overlapping Intervals": new MergeOverlappingIntervals(this.ns),
       }),
     );
   }

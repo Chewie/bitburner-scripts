@@ -8,9 +8,7 @@ export class GenerateIPAddresses {
   }
 
   solve(input: string): string[] {
-    this.ns.tprint(input);
     const ret = this.#solve_rec(input, 0, []);
-    this.ns.tprint(ret);
     return ret;
   }
 
