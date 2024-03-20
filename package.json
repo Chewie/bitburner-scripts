@@ -1,29 +1,15 @@
 {
   "name": "bitburner-scripts",
-  "version": "2.0.0",
+  "version": "0.0.0-devel",
   "scripts": {
-    "watch:transpile": "tsc -w --preserveWatchOutput",
-    "watch:local": "node build/watch.js",
-    "watch:remote": "bitburner-filesync",
-    "watch:init": "node build/init.js",
-    "watch:all": "concurrently npm:watch:transpile npm:watch:local npm:watch:remote",
-    "watch": "npm run watch:init && npm run watch:all"
+    "start": "node ./build.mjs"
   },
-  "author": "hydroflame, Hoekstraa, based on work by SlyCedix",
+  "author": "@chewie",
   "devDependencies": {
     "@biomejs/biome": "^1.6.0",
     "@types/react": "^18.2.18",
     "@types/react-dom": "^18.2.7",
-    "@typescript-eslint/eslint-plugin": "^7.1.1",
-    "@typescript-eslint/parser": "^7.1.1",
-    "bitburner-filesync": "^1.1.5",
-    "chokidar": "^3.5.3",
-    "concurrently": "^7.4.0",
-    "eslint": "^8.22.0",
-    "eslint-config-prettier": "^9.1.0",
-    "fast-glob": "^3.2.12",
-    "prettier": "^3.2.5",
-    "sync-directory": "^5.1.7",
-    "typescript": "^5.4.2"
+    "esbuild": "^0.20.2",
+    "esbuild-bitburner-plugin": "^1.5.0"
   }
 }
