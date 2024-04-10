@@ -1,17 +1,41 @@
-import type { NS } from "@ns";
+import type { NS, Player, Server } from "@ns";
 
-import { type Batch, TaskType } from "/batch/types/batch";
+import { Batch, TaskType } from "/batch/types/batch";
+import { BatchError } from "/batch/types/errors";
 
 export class BatchGenerator {
   constructor(
     private ns: NS,
-    private server: string,
+    private preppedServer: Server,
+    private player: Player,
   ) {}
 
+  private checkPrepped() {
+    if (
+      this.preppedServer.minDifficulty! !==
+        this.ns.getServerMinSecurityLevel(this.preppedServer.hostname) ||
+      this.preppedServer.moneyAvailable! !==
+        this.ns.getServerMoneyAvailable(this.preppedServer.hostname)
+    ) {
+      throw new BatchError("ERROR [GENERATOR] Server not prepped!");
+    }
+  }
+
   generateBatch(): Batch {
-    const homeCores = this.ns.getServer("home").cpuCores;
-    const currentMoney = this.ns.getServerMoneyAvailable(this.server);
-    const maxMoney = this.ns.getServerMaxMoney(this.server);
+    this.preppedServer = this.ns.getServer(this.preppedServer.hostname);
+    this.checkPrepped();
+
+    const hackForms = this.ns.formulas.hacking;
+    const server = { ...this.preppedServer };
+    const currentMoney = server.moneyAvailable!;
+    const maxMoney = server.moneyMax!;
+    const cores = 1;
+
+    const currentPlayer = this.ns.getPlayer();
+
+    const growTime = hackForms.growTime(server, currentPlayer);
+    const hackTime = hackForms.hackTime(server, currentPlayer);
+    const weakenTime = hackForms.weakenTime(server, currentPlayer);
 
     // TODO: Compute hackThreads dynamically?
     // Potential idea: find the biggest thread count that still
@@ -19,30 +43,55 @@ export class BatchGenerator {
     const hackThreads = 5;
 
     const moneyStolen =
-      this.ns.hackAnalyze(this.server) * hackThreads * currentMoney;
-    const growthFactor = maxMoney / Math.max(1, currentMoney - moneyStolen);
-    const growThreads = Math.ceil(
-      this.ns.growthAnalyze(this.server, growthFactor, homeCores),
+      hackForms.hackPercent(server, this.player) * hackThreads * currentMoney;
+
+    const hackSecIncrease = this.ns.hackAnalyzeSecurity(hackThreads, undefined);
+
+    server.moneyAvailable! -= moneyStolen;
+    server.hackDifficulty! += hackSecIncrease;
+
+    this.player.exp.hacking +=
+      hackForms.hackExp(server, this.player) * hackThreads;
+
+    this.player.skills.hacking = this.ns.formulas.skills.calculateSkill(
+      this.player.exp.hacking,
+      this.player.mults.hacking,
+    );
+
+    const growThreads = 1 + hackForms.growThreads(
+      server,
+      this.player,
+      maxMoney,
+      cores,
     );
 
     const growSecIncrease = this.ns.growthAnalyzeSecurity(
       growThreads,
       undefined,
-      homeCores,
+      cores,
     );
 
-    const hackSecIncrease = this.ns.hackAnalyzeSecurity(
-      hackThreads,
-      this.server,
+    server.hackDifficulty! += growSecIncrease;
+
+    this.player.exp.hacking +=
+      hackForms.hackExp(server, this.player) * growThreads;
+
+    this.player.skills.hacking = this.ns.formulas.skills.calculateSkill(
+      this.player.exp.hacking,
+      this.player.mults.hacking,
     );
 
     const totalSecIncrease = hackSecIncrease + growSecIncrease;
-    const weakenOneThread = this.ns.weakenAnalyze(1, homeCores);
+    const weakenOneThread = this.ns.weakenAnalyze(1, cores);
     const weakenThreads = Math.ceil(totalSecIncrease / weakenOneThread);
 
-    const growTime = this.ns.getGrowTime(this.server);
-    const hackTime = this.ns.getHackTime(this.server);
-    const weakenTime = this.ns.getWeakenTime(this.server);
+    this.player.exp.hacking +=
+      hackForms.hackExp(server, this.player) * weakenThreads;
+
+    this.player.skills.hacking = this.ns.formulas.skills.calculateSkill(
+      this.player.exp.hacking,
+      this.player.mults.hacking,
+    );
 
     const tasks = [
       {
@@ -62,8 +111,6 @@ export class BatchGenerator {
       },
     ];
 
-    return {
-      tasks: tasks,
-    };
+    return new Batch(this.ns, tasks);
   }
 }

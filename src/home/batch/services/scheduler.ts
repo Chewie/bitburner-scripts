@@ -1,119 +1,153 @@
-import type { NS } from "@ns";
+import type { NS, Server } from "@ns";
 
 import type { BatchGenerator } from "/batch/services/batch_generator";
-import type { Batch, Task, TaskType } from "/batch/types/batch";
+import type { PoolManager } from "/batch/services/pool_manager";
+import { Batch, Task, TaskType } from "/batch/types/batch";
+import { BatchError } from "/batch/types/errors";
+
+import * as common from "/lib/common";
 
 interface RunningTask {
   type: TaskType;
-  eta: number;
+  delay: number;
+}
+
+interface RunningBatch {
+  tasks: RunningTask[];
 }
 
 export class Scheduler {
-  private taskQueue: RunningTask[] = [];
+  private taskQueue: RunningBatch[] = [];
 
   // TODO: Calculate interval dynamically?
   // potential idea is to find the minimal delay to fill enough batches to last
   // until the first one finishes, but would that improve performance?
-  private taskInterval = 20;
 
   constructor(
     private ns: NS,
     private batchGenerator: BatchGenerator,
+    private poolManager: PoolManager,
     private target: string,
   ) {}
 
   public async run() {
+    let nextSleep = performance.now() + 200;
+    const batch = this.batchGenerator.generateBatch();
+    let count = 0;
     for (;;) {
-      const batch = this.batchGenerator.generateBatch();
-      const freeRam =
-        this.ns.getServerMaxRam("home") - this.ns.getServerUsedRam("home");
-
-      if (this.batchRamSize(batch) > freeRam) {
-        await this.awaitCheck();
+      count++;
+      if (count > 130000) {
+        await this.awaitRemainingTasks();
         // completed tasks may have invalidated batch params, so we start over
-        continue;
+        break;
       }
+      try {
+        if (performance.now() > nextSleep) {
+          await this.ns.sleep(0);
+          nextSleep = performance.now() + 200;
+        }
 
-      this.scheduleBatch(batch);
+        const worker = this.poolManager.getAvailableWorker(batch.ramSize);
+
+        if (worker === undefined) {
+          await this.awaitRemainingTasks();
+          // completed tasks may have invalidated batch params, so we start over
+          break;
+        }
+
+        // this.ns.printf(`INFO [SCHEDULER] Scheduling on ${worker.hostname}`);
+        this.scheduleBatch(batch, worker);
+      } catch (e) {
+        if (e instanceof BatchError) {
+          this.ns.printf(e.message);
+          this.ns.printf("ERROR [SCHEDULER] Waiting for tasks to finish...");
+          await this.awaitRemainingTasks();
+        }
+        this.ns.printf("ERROR [SCHEDULER] Tasks finished, relaunching...");
+        throw e;
+      }
     }
   }
 
-  private scheduleBatch(batch: Batch) {
-    this.ns.printf("INFO [SCHEDULER] new batch");
-    const maxTime = Math.max(
-      ...batch.tasks.map((task: Task) => task.runningTime),
-    );
-    this.ns.printf(
-      `DEBUG [SCHEDULER] batch max time: ${this.ns.tFormat(maxTime, true)}`,
-    );
+  private async awaitRemainingTasks() {
+    for (;;) {
+      const graph = common.deepScan(this.ns);
+      const servers = [...graph].map(([hostname, _parent]) =>
+        this.ns.getServer(hostname),
+      );
+      const pservs = this.ns
+        .getPurchasedServers()
+        .map((hostname) => this.ns.getServer(hostname));
+      const workers = [...servers, ...pservs];
+      if (
+        workers
+          .map(
+            (worker) =>
+              this.ns.scriptRunning(TaskType.Grow, worker.hostname) ||
+              this.ns.scriptRunning(TaskType.Hack, worker.hostname) ||
+              this.ns.scriptRunning(TaskType.Grow, worker.hostname),
+          )
+          .includes(true)
+      ) {
+        await this.ns.sleep(100);
+        continue;
+      }
+      break;
+    }
+    const handle = this.ns.getPortHandle(this.ns.pid);
+    handle.clear();
+  }
 
+  private scheduleBatch(batch: Batch, worker: Server) {
+    const maxTime = batch.maxTime;
+    const runningTasks = [];
     for (const task of batch.tasks) {
-      this.ns.printf("INFO [SCHEDULER] new task");
-      this.ns.printf(`DEBUG [SCHEDULER] task type: ${task.type}`);
-      this.ns.printf(
-        `DEBUG [SCHEDULER] task time: ${this.ns.tFormat(
-          task.runningTime,
-          true,
-        )}`,
-      );
-
-      // FIXME: Ugly logic, can surely be rewritten
-      const now = performance.now();
-      let eta: number;
-      if (this.taskQueue.length === 0) {
-        eta = now + maxTime;
-      } else {
-        eta = this.taskQueue.at(-1)!.eta + this.taskInterval;
-      }
-      let delay = eta - now - task.runningTime;
-
-      if (delay < 0) {
-        // We arrived too late to fit the eta, use the earliest possible eta instead.
-        // (I think) this happens when there isn't enough RAM to cover the first
-        // task duration with enough in-flight batches
-        eta = now + maxTime;
-        delay = 0;
-      }
-
-      this.ns.printf(`DEBUG [SCHEDULER] now: ${this.ns.tFormat(now, true)}`);
-      this.ns.printf(`DEBUG [SCHEDULER] eta: ${this.ns.tFormat(eta, true)}`);
-      this.ns.printf(
-        `DEBUG [SCHEDULER] delay: ${this.ns.tFormat(delay, true)}`,
-      );
+      const delay = maxTime - task.runningTime;
 
       const runningTask = {
         type: task.type,
-        eta: eta,
+        delay: delay,
       };
-      const pid = this.ns.run(
+      this.ns.scp(task.type, worker.hostname);
+      const pid = this.ns.exec(
         task.type,
-        task.numThreads,
+        worker.hostname,
+        {
+          temporary: true,
+          threads: task.numThreads,
+        },
         this.target,
         delay,
         this.ns.pid,
       );
       if (pid === 0) {
-        this.ns.printf("ERROR [SCHEDULER] Couldn't run task");
-        this.ns.exit();
+        throw new BatchError("ERROR [SCHEDULER] Couldn't run task");
       }
-      this.taskQueue.push(runningTask);
+      runningTasks.push(runningTask);
     }
+    // const runningBatch = { tasks: runningTasks };
+    // this.taskQueue.push(runningBatch);
   }
 
   private async awaitCheck() {
-    // FIXME: magic constant.
-    // * Hold a dummy batch to get batch structure?
-    // * Store complete batches instead of tasks in the queue?
-    for (let i = 0; i < 3; i++) {
+    if (this.taskQueue.length === 0) {
+      return await this.ns.sleep(100);
+    }
+    const runningBatch = this.taskQueue.shift()!;
+    for (const task of runningBatch.tasks) {
       await this.ns.nextPortWrite(this.ns.pid);
       const res = this.ns.readPort(this.ns.pid);
-      const finishedTask = this.taskQueue.shift();
 
-      if (finishedTask?.type !== res) {
-        this.ns.printf(
-          `ERROR [SCHEDULER] expected ${finishedTask?.type}, got ${res}`,
+      const delta = task.eta - performance.now();
+
+      this.ns.printf(
+        `DEBUG [SCHEDULER] ETA delta: ${this.ns.tFormat(delta, true)}`,
+      );
+
+      if (task.type !== res) {
+        throw new BatchError(
+          `ERROR [SCHEDULER] expected ${task.type}, got ${res}`,
         );
-        this.ns.exit();
       }
     }
 
@@ -123,21 +157,9 @@ export class Scheduler {
     const maxMoney = this.ns.getServerMaxMoney(this.target);
 
     if (currentSec !== minSec || moneyAvailable !== maxMoney) {
-      this.ns.printf("ERROR [SCHEDULER] Server state not reset after batch");
-      this.ns.printf(`INFO [SCHEDULER] Current sec: ${currentSec}/${minSec}`);
-      this.ns.printf(
-        `INFO [SCHEDULER] Current money: ${this.ns.formatNumber(
-          moneyAvailable,
-        )}/${this.ns.formatNumber(maxMoney)}`,
+      throw new BatchError(
+        "ERROR [SCHEDULER] Server state not reset after batch",
       );
-      this.ns.exit();
     }
-  }
-
-  // TODO: Make batch a real object with ramSize as property
-  private batchRamSize(batch: Batch) {
-    return batch.tasks
-      .map((task) => this.ns.getScriptRam(task.type) * task.numThreads)
-      .reduce((acc, cur) => acc + cur, 0);
   }
 }

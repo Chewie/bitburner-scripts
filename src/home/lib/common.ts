@@ -56,6 +56,10 @@ export function getShareScript() {
   return "/routines/share.js";
 }
 
+export function getEternalGrowScript() {
+  return "/routines/eternal_grow.js";
+}
+
 export function superNuke(ns: NS, server: Server) {
   if (ns.fileExists("BruteSSH.exe", "home")) {
     ns.brutessh(server.hostname);
@@ -104,7 +108,9 @@ export function execHackScript(ns: NS, server: Server, target: string) {
 export function execShare(ns: NS, server: Server) {
   const script = getShareScript();
   const ramCost = ns.getScriptRam(script);
-  const numThreads = Math.floor(server.maxRam / ramCost);
+  const ramToUse =
+    server.hostname === "home" ? server.maxRam - 10 : server.maxRam;
+  const numThreads = Math.floor(ramToUse / ramCost);
 
   if (numThreads === 0) {
     ns.printf("%s: no RAM, not running", server.hostname);
@@ -120,6 +126,30 @@ export function execShare(ns: NS, server: Server) {
     ns.scriptKill(getHackScript(), server.hostname);
     ns.scriptKill(getShareScript(), server.hostname);
     ns.exec(script, server.hostname, numThreads);
+  }
+}
+
+export function execEternalGrow(ns: NS, server: Server, target: string) {
+  const script = getEternalGrowScript();
+  const ramCost = ns.getScriptRam(script);
+  const ramToUse =
+    server.hostname === "home" ? server.maxRam - 10 : server.maxRam;
+  const numThreads = Math.floor(ramToUse / ramCost);
+
+  if (numThreads === 0) {
+    ns.printf("%s: no RAM, not running", server.hostname);
+  } else {
+    ns.printf(
+      "Run eternal grow on %s : maxRam: %s, ramCost: %s, numThreads: %s",
+      server.hostname,
+      server.maxRam,
+      ramCost,
+      numThreads,
+    );
+    ns.scp(script, server.hostname);
+    ns.scriptKill(getHackScript(), server.hostname);
+    ns.scriptKill(getShareScript(), server.hostname);
+    ns.exec(script, server.hostname, numThreads, target);
   }
 }
 

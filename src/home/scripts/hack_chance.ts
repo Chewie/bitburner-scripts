@@ -19,7 +19,7 @@ export async function main(ns: NS) {
   // ns.disableLog("ALL");
   const graph = common.deepScan(ns);
 
-  const target = [...graph]
+  const targets = [...graph]
     .map(([hostname, _parent]) => ns.getServer(hostname))
     .filter((server) => server.hostname !== "home")
     .filter((server) => common.isHackable(ns, server))
@@ -27,7 +27,14 @@ export async function main(ns: NS) {
       (server) =>
         server.requiredHackingSkill! <= Math.ceil(ns.getHackingLevel() / 2),
     )
-    .toSorted(sortServers)[0];
+    .toSorted(sortServers);
 
-  ns.tprint(target.hostname);
+  const player = ns.getPlayer();
+
+  for (const target of targets) {
+    const hackChance = ns.formulas.hacking.hackChance(target, player);
+    ns.tprintf(`Server: ${target.hostname}`);
+    ns.tprintf(`Hack difficulty: ${player.skills.hacking}/${target.requiredHackingSkill!}`);
+    ns.tprintf(`Hack chance: ${hackChance}`);
+  }
 }

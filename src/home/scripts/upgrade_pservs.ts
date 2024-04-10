@@ -22,7 +22,7 @@ export async function main(ns: NS) {
         ns.getServerMoneyAvailable("home") >
           ns.getPurchasedServerUpgradeCost(hostname, newRam)
       ) {
-        ns.printf(`${hostname}: upgrading to ${newRam}GB`);
+        ns.printf(`${hostname}: upgrading to ${newRam}GB (2^${power})`);
         ns.upgradePurchasedServer(hostname, newRam);
         i++;
       }
@@ -30,11 +30,11 @@ export async function main(ns: NS) {
         !exists &&
         ns.getServerMoneyAvailable("home") > ns.getPurchasedServerCost(newRam)
       ) {
-        ns.printf(`${hostname}: buying with ${newRam}GB`);
+        ns.printf(`${hostname}: buying with ${newRam}GB (2^${power})`);
         ns.purchaseServer(hostname, newRam);
         i++;
       }
-      await ns.sleep(1000);
+      await ns.sleep(100);
     }
   }
 }

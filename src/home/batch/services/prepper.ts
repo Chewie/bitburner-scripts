@@ -11,6 +11,15 @@ export class Prepper {
   ) {}
 
   async run(): Promise<void> {
+    // step 1 : weaken until minSec
+    await this.weakenUntilMinSec();
+    // step 2 : grow until max money
+    await this.growUntilMaxMoney();
+    // step 3 : weaken until minSec again
+    await this.weakenUntilMinSec();
+  }
+
+  private getWorkers() {
     const graph = common.deepScan(this.ns);
 
     const servers = [...graph]
@@ -27,28 +36,12 @@ export class Prepper {
       .getPurchasedServers()
       .map((hostname) => this.ns.getServer(hostname));
 
-    for (const worker of [...serverWorkers, ...pservs]) {
-      this.ns.killall(worker.hostname);
-    }
-
     const home = this.ns.getServer("home");
     const workers = [home, ...serverWorkers, ...pservs];
-
-    // step 1 : weaken until minSec
-    await this.#weakenUntilMinSec(workers);
-    // step 2 : grow until max money
-    await this.#growUntilMaxMoney(workers);
-    // step 3 : weaken until minSec again
-    await this.#weakenUntilMinSec(workers);
-
-    // TODO: should that be the role of the prepper?
-    // Workers are now unused, use them for faction rep share
-    for (const worker of [...serverWorkers, ...pservs]) {
-      common.execShare(this.ns, worker);
-    }
+    return workers;
   }
 
-  async #weakenUntilMinSec(workers: Server[]): Promise<void> {
+  private async weakenUntilMinSec(): Promise<void> {
     this.ns.printf("[PREPPER] Weakening until min sec...");
 
     let currentSec = this.ns.getServerSecurityLevel(this.target);
@@ -56,23 +49,9 @@ export class Prepper {
 
     while (currentSec !== minSec) {
       this.ns.printf(`[PREPPER] Current sec: ${currentSec}/${minSec}`);
-      for (const worker of workers) {
-        const taskType = TaskType.Weaken;
-        const threadCount = this.#getMaxThreads(taskType, worker);
-        this.ns.scp(TaskType.Weaken, worker.hostname);
-        this.ns.exec(
-          taskType,
-          worker.hostname,
-          threadCount,
-          this.target,
-          0,
-          this.ns.pid,
-        );
-      }
-      for (const _worker of workers) {
-        await this.ns.nextPortWrite(this.ns.pid);
-        this.ns.readPort(this.ns.pid);
-      }
+      const workers = this.getWorkers();
+
+      await this.weakenSalve(workers);
 
       currentSec = this.ns.getServerSecurityLevel(this.target);
       minSec = this.ns.getServerMinSecurityLevel(this.target);
@@ -80,7 +59,7 @@ export class Prepper {
     this.ns.printf("[PREPPER] Weakening done.");
   }
 
-  async #growUntilMaxMoney(workers: Server[]): Promise<void> {
+  private async growUntilMaxMoney(): Promise<void> {
     this.ns.printf("[PREPPER] Growing until max money...");
 
     let moneyAvailable = this.ns.getServerMoneyAvailable(this.target);
@@ -92,24 +71,9 @@ export class Prepper {
           moneyAvailable,
         )}/${this.ns.formatNumber(maxMoney)}`,
       );
-      for (const worker of workers) {
-        const taskType = TaskType.Grow;
-        const threadCount = this.#getMaxThreads(taskType, worker);
-        this.ns.scp(TaskType.Grow, worker.hostname);
-        this.ns.exec(
-          taskType,
-          worker.hostname,
-          threadCount,
-          this.target,
-          0,
-          this.ns.pid,
-        );
-      }
-
-      for (const _worker of workers) {
-        await this.ns.nextPortWrite(this.ns.pid);
-        this.ns.readPort(this.ns.pid);
-      }
+      const workers = this.getWorkers();
+      await this.growSalve(workers);
+      await this.weakenSalve(workers);
 
       moneyAvailable = this.ns.getServerMoneyAvailable(this.target);
       maxMoney = this.ns.getServerMaxMoney(this.target);
@@ -117,10 +81,51 @@ export class Prepper {
     this.ns.printf("[PREPPER] Growing done.");
   }
 
+  private async weakenSalve(workers: Server[]): Promise<void> {
+    for (const worker of workers) {
+      const taskType = TaskType.Weaken;
+      const threadCount = this.#getMaxThreads(taskType, worker);
+      this.ns.scp(TaskType.Weaken, worker.hostname);
+      this.ns.exec(
+        taskType,
+        worker.hostname,
+        threadCount,
+        this.target,
+        0,
+        this.ns.pid,
+      );
+    }
+    for (const _worker of workers) {
+      await this.ns.nextPortWrite(this.ns.pid);
+      this.ns.readPort(this.ns.pid);
+    }
+  }
+
+  private async growSalve(workers: Server[]): Promise<void> {
+    for (const worker of workers) {
+      const taskType = TaskType.Grow;
+      const threadCount = this.#getMaxThreads(taskType, worker);
+      this.ns.scp(TaskType.Grow, worker.hostname);
+      this.ns.exec(
+        taskType,
+        worker.hostname,
+        threadCount,
+        this.target,
+        0,
+        this.ns.pid,
+      );
+    }
+
+    for (const _worker of workers) {
+      await this.ns.nextPortWrite(this.ns.pid);
+      this.ns.readPort(this.ns.pid);
+    }
+  }
+
   #getMaxThreads(scriptName: string, server: Server): number {
     const ramCost = this.ns.getScriptRam(scriptName);
-    const ramToUse =
-      server.hostname === "home" ? server.maxRam * 0.9 : server.maxRam;
+    const freeRam = server.maxRam - server.ramUsed;
+    const ramToUse = server.hostname === "home" ? freeRam * 0.9 : freeRam;
     const numThreads = Math.max(1, Math.floor(ramToUse / ramCost));
 
     return numThreads;
